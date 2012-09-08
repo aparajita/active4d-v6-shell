@@ -721,21 +721,27 @@ method "gotoRow"($self; $inRow)
 	$valid := true
 
 	if ($inRow >= 0)
-		if ($inRow > $self{"_end"})
-			$index := $self{"_end"} + 1
-			$valid := false
-		else
-			$index := $inRow
-			$valid := $index >= $self{"_start"}
-
-			if (not($valid))
+		case of
+			:($self{"_count"} = 0)
+				$valid := false
 				$index := kRow_BeforeFirst
-			end if
-		end if
+
+			:($inRow > $self{"_end"})
+				$index := $self{"_end"} + 1
+				$valid := false
+
+			else
+				$index := $inRow
+				$valid := $index >= $self{"_start"}
+
+				if (not($valid))
+					$index := kRow_BeforeFirst
+				end if
+		end case
 	else
 		$index := $self{"_end"} + $inRow + 1
 
-		if ($index < $self{"_start"})
+		if ($index < $self{"_start"}) | ($self{"_count"} = 0)
 			$index := kRow_BeforeFirst
 			$valid := false
 		end if
@@ -876,7 +882,7 @@ end method
 
 method "isBeforeFirst"($self)
 
-	return ($self{"_index"} < $self{"_start"})
+	return (($self{"_start"} = 0) | ($self{"_index"} < $self{"_start"}))
 
 end method
 
@@ -898,7 +904,7 @@ end method
 
 method "isFirst"($self)
 
-	return ($self{"_index"} = $self{"_start"})
+	return (($self{"_start"} > 0) & ($self{"_index"} = $self{"_start"}))
 
 end method
 
@@ -921,11 +927,7 @@ end method
 
 method "isLast"($self)
 
-	if ($self{"_end"} > 0)
-		return ($self{"_index"} = $self{"_end"})
-	else
-		return (false)
-	end if
+	return (($self{"_end"} > 0) & ($self{"_index"} = $self{"_end"}))
 
 end method
 
@@ -948,11 +950,7 @@ end method
 
 method "isAfterLast"($self)
 
-	if ($self{"_end"} > 0)
-		return ($self{"_index"} > $self{"_end"})
-	else
-		return (true)
-	end if
+	return (($self{"_end"} = 0) | ($self{"_index"} > $self{"_end"}))
 
 end method
 
