@@ -923,6 +923,8 @@ library "a4d.json"
 		$inWantGlobalCollections	Boolean		If false (the default), all collections created
 												from JSON objects will be local. If true, all
 												collections will be global.
+		$inThrowOnError				Boolean		If true (the default), malformed JSON will throw
+												an error.
 	************************************************************************************************/
 
 	method "parse"($inJSON; $inWantGlobalCollections = false; $inThrowOnError = true)
@@ -974,18 +976,18 @@ library "a4d.json"
 
 		Parameters:
 		$inObject	<any>		Data to convert. Valid types are text, text array,
-								longint array, and collection. Longint arrays will
-								be traversed, and if an element is a collection,
+								longint array, and collection. Longint arrays are
+								traversed, and if an element is a collection,
 								this method will be called recursively with that collection.
-								For text arrays, if all of the elements of the array
-								can be converted to dates, an array of the dates is returned.
+								For text arrays, if all of the elements of the array can be
+								converted to dates, an array of the converted dates is returned.
 								Otherwise the original text array is returned.
 		$inKeys		Text		If non-empty, it should be a delimited regular expression.
 								When traversing collections, only collection keys which
 								match will be considered for conversion.
-		RESULT		<any>		Returns a converted version of $inObject. Collections
-								and arrays are converted in place, so the original object
-								is returned. If $inObject is text and is converted, a date
+		RESULT		<any>		Returns a converted version of $inObject. Converted text
+								arrays will be returned as date arrays, and converted text
+								will be returned as a date. Otherwise the original object
 								is returned.
 	************************************************************************************************/
 
