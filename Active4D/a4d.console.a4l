@@ -334,7 +334,7 @@ method "dump session"($inFilter = "")
 			$timeout := "{0,number,#########0} minutes" %% $timeout
 		end if
 
-		a4d.console.dump collection(session; "Session [{0,number,#########0}/{0,number,#########0}]\r> Timeout: {1}" %% (session internal id; session id; $timeout); true; $inFilter)
+		a4d.console.dump collection(session; "Session [{0,number,#########0}/{1,number,#########0}]\r> Timeout: {1}" %% (session internal id; session id; $timeout); true; $inFilter)
 	end if
 
 end method

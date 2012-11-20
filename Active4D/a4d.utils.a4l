@@ -133,72 +133,6 @@ end method
 
 
 /**********************************************************************************
-	_doSelectionOp
-
-	Helper method for deleteSelection and applyToSelection
-
-	$inTable		->	Table pointer	Table to apply to
-	$inStatement	->	Text			Code to execute for 'apply to selection'
-	$inTimeoutURL	->	Text			URL of page to redirect to if we timeout
-										waiting for locks
-	$inTimeout		->	Number			Seconds to wait before timing out
-	RESULT			<-	Boolean			True if selection successfully deleted
-**********************************************************************************/
-
-method "_doSelectionOp"($inTable; $inStatement; $inTimeoutURL; $inTimeout)
-
-	if (records in selection($inTable->) = 0)
-		return (true)
-	end if
-
-	c_boolean($timedOut; $readOnlyState)
-	$timedOut := false
-	$readOnlyState := read only state($inTable->)
-	read write($inTable->)
-	c_longint($ticks)
-	$ticks := tickcount
-
-	// Wait a maximum of $inTimeout seconds for all records to be processed
-	repeat
-		if (length($inStatement) = 0)
-			delete selection($inTable->)
-		else
-			execute in 4d($inStatement)
-		end if
-
-		if (records in set("LockedSet"))
-			delay process(current process; 10)
-
-			if ((tickcount - $ticks) > ($inTimeout * 60))
-				break
-			end if
-
-			use set("LockedSet")
-		end if
-	until (records in set("LockedSet") = 0)
-
-	if ($readOnlyState)
-		read only($inTable->)
-	else
-		read write($inTable->)
-	end if
-
-	if (records in set("LockedSet"))
-		// We timed out
-		$timedOut := true
-
-		if ($inTimeoutURL)
-			redirect($inTimeoutURL)
-		end if
-	end if
-
-	return (not($timedOut))
-
-end method
-
-
-
-/**********************************************************************************
 	nextID
 
 	$inIdField			->	Field pointer	Field which contains IDs
@@ -984,50 +918,6 @@ end method
 
 
 /***********************************************************************************
-	_collectionToBlob
-
-	$inCollection	->	Collection	Collection to serialize
-	$ioBlob			<->	BLOB		Receives the serialized collection
-	$inName			->	Text		The item name for the collection within its parent
-	$inLevel		->	Number		Recursion level
-
-	Private helper for _collectionToBlob, should not be called directly.
-***********************************************************************************/
-
-method "_collectionToBlob"($inCollection; &$ioBlob; $inName; $inLevel)
-
-	longint to blob($inLevel; $ioBlob; intel byte ordering; *)
-	text to blob($inName; $ioBlob; utf8 text with length; *)
-	collection to blob($inCollection; $ioBlob)
-
-	for each($inCollection; $key)
-		$type := type($inCollection{$key})
-
-		case of
-			:($type = is longint) | ($type = is real)
-				$value := $inCollection{$key}
-
-				if (is a collection($value))
-					_collectionToBlob($value; $ioBlob; $key; $inLevel + 1)
-				end if
-
-			:($type = longint array) | ($type = real array)
-				for ($i; 0; size of array($inCollection{$key}))
-					if (is a collection($inCollection{$key}{$i}))
-						_collectionToBlob($inCollection{$key}{$i}; $ioBlob; '\t$key\t$i'; $inLevel + 1)
-					end if
-				end for
-		end case
-	end for each
-
-	// Write the decremented level, which marks the end of this collection.
-	longint to blob($inLevel - 1; $ioBlob; intel byte ordering; *)
-
-end method
-
-
-
-/***********************************************************************************
 	blobToCollection
 
 	$inBlob		->	Contains the serialized collection
@@ -1095,6 +985,211 @@ end method
 
 
 /***********************************************************************************
+	selectionToCollection
+
+	$inFields			->	Field specification
+	$inDotForeignFields	->	true to use table.field as the item key for all
+							foreign fields, false to use only the field name
+							unless the field name is not unique (the default)
+	$inWantGlobal		->	true to return a global collection, false to return
+							a local collection (the default)
+	RESULT				<-	Collection with field data
+
+	This method is analogous to SELECTION TO ARRAY, but instead of putting
+	the field data into a number of different array variables, the data is
+	put into arrays within a single collection.
+
+	The resulting collection has one item per field, each of which
+	contains an array of values for that field. Like SELECTION TO ARRAY,
+	the table of the first field is considered the main table.
+
+	$inFields may be either:
+
+	- A semicolon-delimited list of [table]field names and optional aliases
+	- An array of [table]field names and optional aliases
+	- An array of field pointers
+	- A table pointer (which must be passed in a variable)
+
+	When passing a list or array of [table]field names, leading and trailing
+	whitespace is ignored. If a [table]field is followed by an item which
+	does not begin with "[", the next item is used as the key for that field
+	in the collection. This allows you to map database field names to something else.
+
+	If you pass an array of field pointers, it is the same as passing
+	an array of [table]field names for those fields.
+
+	If you pass a table pointer, it is the same as passing an array
+	of all [table]field names for that table.
+
+	If a field name is not aliased, the field name is used as the collection
+	key for	fields belonging to the main table. For unaliased fields in other
+	tables, the	collection key will be table.field.
+
+	Example:
+
+	$fields := "[contacts]first_name;first;[contacts]last_name;last;[company]name"
+	$collection := a4d.utils.selectionToCollection($fields)
+***********************************************************************************/
+
+method "selectionToCollection"(&$inFields; $inWantGlobal = false)
+
+	return (_doSelectionToCollection(false; -1; -1; $inFields; $inWantGlobal))
+
+end method
+
+
+
+/***********************************************************************************
+	selectionRangeToCollection
+
+	$inStart			->	Starting selected record number
+	$inEnd				->	Ending selected record number
+	$inFields			->	Field specification
+	$inWantGlobal		->	true to return a global collection, false to return
+							a local collection (the default)
+	RESULT				<-	Collection with field data
+
+	This method is the same as selectionToCollection, but allows you to specify
+	a range of selected records is you would with SELECTION RANGE TO ARRAY.
+***********************************************************************************/
+
+method "selectionRangeToCollection"($inStart; $inEnd; &$inFields; $inWantGlobal = false)
+
+	return (_doSelectionToCollection(true; $inStart; $inEnd; $inFields; $inWantGlobal))
+
+end method
+
+
+/*
+	PRIVATE METHODS
+*/
+
+
+/**********************************************************************************
+	__load__
+**********************************************************************************/
+
+method "__load__"
+
+	// Set some defaults
+
+	setMailMethod("A4D_SendMail")
+
+end method
+
+
+
+/**********************************************************************************
+	_doSelectionOp
+
+	Helper method for deleteSelection and applyToSelection
+
+	$inTable		->	Table pointer	Table to apply to
+	$inStatement	->	Text			Code to execute for 'apply to selection'
+	$inTimeoutURL	->	Text			URL of page to redirect to if we timeout
+										waiting for locks
+	$inTimeout		->	Number			Seconds to wait before timing out
+	RESULT			<-	Boolean			True if selection successfully deleted
+**********************************************************************************/
+
+method "_doSelectionOp"($inTable; $inStatement; $inTimeoutURL; $inTimeout)
+
+	if (records in selection($inTable->) = 0)
+		return (true)
+	end if
+
+	c_boolean($timedOut; $readOnlyState)
+	$timedOut := false
+	$readOnlyState := read only state($inTable->)
+	read write($inTable->)
+	c_longint($ticks)
+	$ticks := tickcount
+
+	// Wait a maximum of $inTimeout seconds for all records to be processed
+	repeat
+		if (length($inStatement) = 0)
+			delete selection($inTable->)
+		else
+			execute in 4d($inStatement)
+		end if
+
+		if (records in set("LockedSet"))
+			delay process(current process; 10)
+
+			if ((tickcount - $ticks) > ($inTimeout * 60))
+				break
+			end if
+
+			use set("LockedSet")
+		end if
+	until (records in set("LockedSet") = 0)
+
+	if ($readOnlyState)
+		read only($inTable->)
+	else
+		read write($inTable->)
+	end if
+
+	if (records in set("LockedSet"))
+		// We timed out
+		$timedOut := true
+
+		if ($inTimeoutURL)
+			redirect($inTimeoutURL)
+		end if
+	end if
+
+	return (not($timedOut))
+
+end method
+
+
+
+/***********************************************************************************
+	_collectionToBlob
+
+	$inCollection	->	Collection	Collection to serialize
+	$ioBlob			<->	BLOB		Receives the serialized collection
+	$inName			->	Text		The item name for the collection within its parent
+	$inLevel		->	Number		Recursion level
+
+	Private helper for _collectionToBlob, should not be called directly.
+***********************************************************************************/
+
+method "_collectionToBlob"($inCollection; &$ioBlob; $inName; $inLevel)
+
+	longint to blob($inLevel; $ioBlob; intel byte ordering; *)
+	text to blob($inName; $ioBlob; utf8 text with length; *)
+	collection to blob($inCollection; $ioBlob)
+
+	for each($inCollection; $key)
+		$type := type($inCollection{$key})
+
+		case of
+			:($type = is longint) | ($type = is real)
+				$value := $inCollection{$key}
+
+				if (is a collection($value))
+					_collectionToBlob($value; $ioBlob; $key; $inLevel + 1)
+				end if
+
+			:($type = longint array) | ($type = real array)
+				for ($i; 0; size of array($inCollection{$key}))
+					if (is a collection($inCollection{$key}{$i}))
+						_collectionToBlob($inCollection{$key}{$i}; $ioBlob; '\t$key\t$i'; $inLevel + 1)
+					end if
+				end for
+		end case
+	end for each
+
+	// Write the decremented level, which marks the end of this collection.
+	longint to blob($inLevel - 1; $ioBlob; intel byte ordering; *)
+
+end method
+
+
+
+/***********************************************************************************
 	_blobToCollection
 
 	$inBlob		->	Contains the serialized collection
@@ -1144,21 +1239,103 @@ method "_blobToCollection"($inBlob; &$ioOffset; $inGlobal; $inParent; $inLevel)
 end method
 
 
+method "_doSelectionToCollection"($inWantRange; $inStart; $inEnd; &$inFields; $inWantGlobal)
 
-/*
-	PRIVATE METHODS
-*/
+	$type := type($inFields)
 
+	case of
+		:($type = is text)
+			split string($inFields; ";"; $fields)
 
-/**********************************************************************************
-	__load__
-**********************************************************************************/
+		:($type = text array)
+			$fields ::= $inFields
 
-method "__load__"
+		:($type = pointer array)
+			array text($fields; 0)
 
-	// Set some defaults
+			for each ($inFields; $ptr)
+				$fields{} := field name($ptr; *)
+			end for each
 
-	setMailMethod("A4D_SendMail")
+		:($type = is pointer)
+			resolve pointer($inFields; $name; $tableNum; $fieldNum)
+
+			if ($tableNum = 0)
+				throw("If $inFields is a pointer, it must be a table/field pointer.")
+			end if
+
+			array text($fields; 0)
+
+			for ($i; 1; get last field number($tableNum))
+				if (is field number valid($tableNum; $i))
+					$fields{} := field name($tableNum; $i; *)
+				end if
+			end for
+
+		else
+			throw("$inFields must be either a string or a text array.")
+	end case
+
+	$size := size of array($fields)
+	array text($tableFields; 0)
+	array text($keys; 0)
+
+	for ($i; 1; $size)
+		$field := trim($fields{$i})
+		$ptr := get field pointer($field)
+
+		if (nil($ptr))
+			throw("Invalid [table]field name: {0}" %% ($field))
+		end if
+
+		if ($i = 1)
+			$mainTable := table($ptr)
+		end if
+
+		$tableFields{} := $field
+		$fieldName := field name($ptr)
+		$needKey := true
+
+		// See if the next item is an alias
+		if ($i < $size)
+			$nextField := trim($fields{$i + 1})
+
+			if ($nextField[[1]] # "[")
+				++$i
+				$keys{} := $nextField
+				$needKey := false
+			end if
+		end if
+
+		if ($needKey)
+			if (table($ptr) # $mainTable)
+				$keys{} := "{0}.{1}" %% (table name($ptr); $fieldName)
+			else
+				$keys{} := $fieldName
+			end if
+		end if
+	end for
+
+	if ($inWantRange)
+		$exec := "selection range to array({0};{1};" %% ($inStart; $inEnd)
+	else
+		$exec := "selection to array("
+	end if
+
+	if ($inWantGlobal)
+		$c := new global collection
+	else
+		$c := new collection
+	end if
+
+	for ($i; 1; size of array($tableFields))
+		$exec += "{0};$c'{\"'{1}\"'}';" %% ($tableFields{$i}; $keys{$i})
+	end for
+
+	$exec[[-1]] := ")"
+	execute($exec)
+
+	return ($c)
 
 end method
 
