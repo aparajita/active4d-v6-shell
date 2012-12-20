@@ -827,11 +827,16 @@ method "dump selection"($inTable; $inFields = "")
 				// Separate the field name from a format
 				$name := trim(slice string($fieldName; ":"; $format))
 
-				if ($name[[1]] = "[")
-					$ptr := get field pointer($name)
-				else
-					$ptr := get field pointer($tableName + $name)
-				end if
+				case of
+					:($name = "#")
+						$ptr := $inTable
+
+					:($name[[1]] = "[")
+						$ptr := get field pointer($name)
+
+					else
+						$ptr := get field pointer($tableName + $name)
+				end case
 
 				if (nil($ptr))
 					throw('dump selection: invalid field ("$fieldNames{$i}")')
@@ -877,7 +882,7 @@ method "dump selection"($inTable; $inFields = "")
 	writeln("  </tr>")
 
 	// Now write the row data
-	$cell := "    <td>$v</td>"
+	$cell := "    <td class=\"$c\">$v</td>"
 
 	if (records in selection($inTable->) > 0)
 		for ($i; 1; records in selection($inTable->))
@@ -886,36 +891,45 @@ method "dump selection"($inTable; $inFields = "")
 			writeln('  <tr>\n    <td class="label num $class">$i</td>')
 
 			for each ($fields; $field; $fi)
-				$type := type($field->)
+				$class := ""
+				resolve pointer($field; $name; $tableNum; $fieldNum)
 
-				case of
-					:($type = Is Alpha Field) | ($type = Is Text)
-						$value := mac to html($field->; *)
+				if ($fieldNum = 0)
+					$value := mac to html(string(record number(table($tableNum)->); $fieldFormats{$fi}); *)
+					$class := "right"
+				else
+					$type := type($field->)
 
-					:($type = Is Date) | ($type = Is Time)
-						// These types take a numeric format
-						if (length($fieldFormats{$fi}) > 0)
-							execute('\$format := $fieldFormats{$fi}')
-							$value := mac to html(string($field->; $format); *)
+					case of
+						:($type = Is Alpha Field) | ($type = Is Text)
+							$value := mac to html($field->; *)
+
+						:($type = Is Date) | ($type = Is Time)
+							// These types take a numeric format
+							if (length($fieldFormats{$fi}) > 0)
+								execute('\$format := $fieldFormats{$fi}')
+								$value := mac to html(string($field->; $format); *)
+							else
+								$value := mac to html(string($field->); *)
+							end if
+
+						:($type = Is Boolean)
+							$value := choose($field->; "True"; "False")
+
+						:($type = Is Picture)
+							$value := a4d.utils.getPictureDescriptor($field->)
+
+						:($type = Is Blob)
+							$value := "BLOB ({0,number} bytes)" %% (blob size($field->))
+
 						else
-							$value := mac to html(string($field->); *)
-						end if
+							// real, integer, longint
+							$value := mac to html(string($field->; $fieldFormats{$fi}); *)
+							$class := "right"
+					end case
+				end if
 
-					:($type = Is Boolean)
-						$value := choose($field->; "True"; "False")
-
-					:($type = Is Picture)
-						$value := a4d.utils.getPictureDescriptor($field->)
-
-					:($type = Is Blob)
-						$value := "BLOB ({0,number} bytes)" %% (blob size($field->))
-
-					else
-						// real, integer, longint
-						$value := mac to html(string($field->; $fieldFormats{$fi}); *)
-				end case
-
-				writeln(replace string($cell; "$v"; $value))
+				writeln(replace string(replace string($cell; "$v"; $value); "$c"; $class))
 			end for each
 
 			writeln("  </tr>")
@@ -1019,6 +1033,10 @@ div.a4d-debug td.current {
 div.a4d-debug .num {
 	width: 10px;
 	text-align: center;
+}
+
+div.a4d-debug .right {
+	text-align: right;
 }
 
 div.a4d-debug .no-wrap {
