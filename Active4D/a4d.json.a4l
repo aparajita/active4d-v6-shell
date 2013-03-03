@@ -1112,10 +1112,10 @@ library "a4d.json"
 	method "_parseObject"($ctx)
 
 		c_text($key)
-		c_longint($object)
-		$object := new collection
 
 		if ($ctx{"ch"} = "{")
+			c_longint($object)
+			$object := new collection
 			_parseNext($ctx)
 			_parseWhite($ctx)
 
