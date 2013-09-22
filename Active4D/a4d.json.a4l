@@ -8,13 +8,6 @@
 
 library "a4d.json"
 
-	define(kControlChars; char(8) + char(12) + "\r\n\t\"\\")
-	define(kControlCharReps; "\\b\\f\\r\\n\\t\\\"\\\\")
-	define(kWrap; true)
-	define(kDontWrap; false)
-
-	define(kParseError; 7100)
-	define(kParseEscapees; new global collection("\""; "\""; "\\"; "\\"; "/"; "/"; "b"; char(8); "f"; char(12); "n"; "\n"; "r"; "\r"; "t"; "\t"))
 	define(kDateRegex; "/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d+), (\d{4})|(\d{4})-(\d{2})-(\d{2})(T\d{2}:\d{2}:\d{2})?/")
 
 
@@ -45,8 +38,7 @@ library "a4d.json"
 
 	method "new"($inWrap = true)
 
-		$c := new collection("__class__"; current library name; "_wrap"; $inWrap)
-		$c{"_rep"} := choose($inWrap; "{"; "")
+		$c := new collection("__class__"; current library name; "__wrap__"; $inWrap; "json"; new json)
 		return ($c)
 
 	end method
@@ -71,21 +63,7 @@ library "a4d.json"
 
 	method "add"($self; $inKey; $inValue; $inFilter = "")
 
-		if ($inKey)
-			$format := "{0}:{1},"
-		else
-			$format := "{1},"
-		end if
-
-		// If $inValue is a JSON object, add it as a subobject
-		if (is a collection($inValue))
-			if ($inValue{"__class__"} = current library name)
-				$self{"_rep"} += $format %% (encodeString($inKey); $inValue->toJSON)
-				return ($self)
-			end if
-		end if
-
-		$self{"_rep"} += $format %% (encodeString($inKey); encode($inValue; $inFilter))
+		add to json($self{"json"}; $inKey; $inValue; *; $inFilter)
 		return ($self)
 
 	end method
@@ -111,17 +89,7 @@ library "a4d.json"
 
 	method "addDateTime"($self; $inKey; $inDate; $inTime; $inTimezone)
 
-		if ($inKey)
-			$format := "{0}:\"{1} {2}, {3,number,####} {4} GMT{5}\","
-		else
-			$format := "\"{1} {2}, {3,number,####} {4} GMT{5}\","
-		end if
-
-		$month := self{"_months"}{month of($inDate)}
-		$tzOffset := string($inTimezone \ 60; "+00;-00;+00") + string(abs($inTimezone) % 60; "00")
-		$tm := string($inTime; HH MM SS)
-
-		$self{"_rep"} += $format %% (encodeString($inKey); $month; day of($inDate); year of($inDate); $tm; $tzOffset)
+		add datetime to json($self{"json"}; $inKey; $inDate; $inTime; $inTimezone)
 		return ($self)
 
 	end method
@@ -145,13 +113,7 @@ library "a4d.json"
 
 	method "addArray"($self; $inKey; &$inArray)
 
-		if ($inKey)
-			$format := "{0}:{1},"
-		else
-			$format := "{1},"
-		end if
-
-		$self{"_rep"} += $format %% (encodeString($inKey); encodeArray($inArray))
+		add to json($self{"json"}; $inKey; $inArray)
 		return ($self)
 
 	end method
@@ -188,134 +150,7 @@ library "a4d.json"
 
 	method "addSelection"($self; $inTable; $inCountKey = ""; $inDataKey = ""; $inMap = 0; $inFirst = 1; $inLimit = -1)
 
-		// If $inFirst # -1, that means return the selection as an array,
-		// otherwise only return the current record in the selection
-		$wantSelection := $inFirst # -1
-
-		if ($wantSelection)
-			// We want the minimum of $inLimit and the number of records between $inFirst
-			// and the end of the selection.
-			$recs := records in selection($inTable->)
-
-			if ($inLimit = -1)
-				$inLimit := $recs
-			end if
-
-			// If there is a limit and $inFirst would result no records being returned,
-			// then return at least $inLimit records by setting $inFirst accordingly.
-			if ($inLimit > 0) & ($inFirst > $recs)
-				$inFirst := max of($recs - $inLimit + 1; 1)
-			end if
-
-			$numRecs := max of(min of($inLimit; $recs - $inFirst + 1); 0)
-		else
-			$recs := 1
-			$numRecs := 1
-			$inFirst := selected record number($inTable->)
-			$inLimit := 1
-		end if
-
-		if ($inCountKey)
-			add($self; $inCountKey; $recs)
-		end if
-
-		// If record only mode, the data is returned without an array wrapper
-		if ($wantSelection)
-			if ($inDataKey)
-				$self{"_rep"} += encodeString($inDataKey) + ":["
-			else
-				$self{"_rep"} += "["
-			end if
-		else
-			if ($inDataKey)
-				$self{"_rep"} += encodeString($inDataKey) + ":"
-			end if
-		end if
-
-		if ($numRecs)
-			$tableNum := table($inTable)
-			$rowCallback := ""
-
-			if ($inMap = 0)
-				// If no map is passed, construct one for $inTable
-				$inMap := new collection
-
-				for ($i; 1; get last field number($tableNum))
-					if (is field number valid($tableNum; $i))
-						$inMap{field name($tableNum; $i)} := field($tableNum; $i)
-					end if
-				end for
-			else
-				$rowCallback := $inMap{"a4d.json.callback"}
-				delete collection item($inMap; "a4d.json.callback")
-			end if
-
-			if ($wantSelection)
-				goto selected record($inTable->; $inFirst)
-			end if
-
-			for ($i; 1; $numRecs)
-				if ($rowCallback)
-					if ($rowCallback[[1]] = "!")
-						execute in 4d(substring($rowCallback; 2))
-					else
-						execute($rowCallback)
-					end if
-				end if
-
-				$self{"_rep"} += "{"
-
-				for each ($inMap; $key)
-					$value := $inMap{$key}
-					$type := type($value)
-
-					case of
-						:($type = 23)  // pointer
-							resolve pointer($value; $name; $table; $field)
-
-							if ($field = 0)  // no field number means a table pointer
-								add($self; $key; record number($value->))
-							else
-								// If a foreign field, establish automatic relations
-								if ($table # $tableNum)
-									relate one($inTable->)
-								end if
-
-								add($self; $key; $value->)
-							end if
-
-						:($type = 2)  // text
-							if ($value[[1]] = "!")
-								$value := execute in 4d(substring($value; 2); *)
-							else
-								$value := execute("return(" + $value + ")")
-							end if
-
-							add($self; $key; $value)
-					end case
-				end for each
-
-				// Replace trailing comma with }, then add comma if not record only mode
-				$self{"_rep"}[[-1]] := "}"
-
-				if ($wantSelection)
-					$self{"_rep"} += ","
-					next record($inTable->)
-				end if
-			end for
-
-			if ($wantSelection)
-				// Replace the trailing comma with ] to end the array
-				$self{"_rep"}[[-1]] := "]"
-			end if
-		else
-			// Empty selection
-			if ($wantSelection)
-				$self{"_rep"} += "]"
-			end if
-		end if
-
-		$self{"_rep"} += ","
+		add selection to json($self{"json"}; $inTable->; $inCountKey; $inDataKey; $inMap; $inFirst; $inLimit)
 		return ($self)
 
 	end method
@@ -348,76 +183,7 @@ library "a4d.json"
 
 	method "addRowSet"($self; $inRowSet; $inCountKey = ""; $inDataKey = ""; $inMap = ""; $inFirst = 1; $inLimit = -1)
 
-		// We want the minimum of $inLimit and the number of rows between $inFirst
-		// and the end of the RowSet.
-		$rows := $inRowSet->rowCount
-		$inFirst := max of($inFirst; 1)
-
-		if ($inLimit < 1)
-			$inLimit := $rows
-		else
-			// If there is a limit and $inFirst would result no records being returned,
-			// then return at least $inLimit records by setting $inFirst accordingly.
-			if ($inFirst > $rows)
-				$inFirst := max of($rows - $inLimit + 1; 1)
-			end if
-		end if
-
-		$numRows := max of(min of($inLimit; $rows - $inFirst + 1); 0)
-
-		if ($inCountKey)
-			add($self; $inCountKey; $rows)
-		end if
-
-		if ($inDataKey)
-			$self{"_rep"} += encodeString($inDataKey) + ":["
-		else
-			$self{"_rep"} += "["
-		end if
-
-		if ($numRows)
-			$map := new collection
-
-			if (not($inMap))
-				// If no map is passed, construct one for $inRowSet
-				for ($i; 1; $inRowSet->columnCount)
-					$col := $inRowSet->getColumn($i)
-					$map{$col} := $col
-				end for
-			else
-				array text($cols; 0)
-				a4d.lists.listToArray($inMap; $cols; ";")
-
-				for each ($cols; $value)
-					$key := slice string($value; ":"; $col)
-					$map{$key} := ($col | $key)
-				end for each
-			end if
-
-			$inRowSet->gotoRow($inFirst)
-			$row := $inRowSet->getRow
-
-			for ($i; 1; $numRows)
-				$self{"_rep"} += "{"
-
-				for each ($map; $key)
-					add($self; $key; $row{$map{$key}})
-				end for each
-
-				// Replace trailing comma with }, then add comma
-				$self{"_rep"}[[-1]] := "}"
-				$self{"_rep"} += ","
-				$inRowSet->next
-			end for
-
-			// Replace the trailing comma with ] to end the array
-			$self{"_rep"}[[-1]] := "]"
-		else
-			// Empty RowSet
-			$self{"_rep"} += "]"
-		end if
-
-		$self{"_rep"} += ","
+		add rowset to json($self{"json"}; $inRowSet; $inCountKey; $inDataKey; $inMap; $inFirst; $inLimit)
 		return ($self)
 
 	end method
@@ -441,7 +207,8 @@ library "a4d.json"
 
 	method "addFunction"($self; $inKey; $inFunction)
 
-		$self{"_rep"} += "{0}:{1}," %% (encodeString($inKey); $inFunction)
+		add function to json($self{"json"}; $inKey; $inFunction)
+		return ($self)
 
 	end method
 
@@ -463,13 +230,7 @@ library "a4d.json"
 
 	method "startObject"($self; $inKey = "")
 
-		if ($inKey)
-			$format := "{0}:'{'"
-		else
-			$format := "'{'"
-		end if
-
-		$self{"_rep"} += $format %% (encodeString($inKey))
+		start json object($self{"json"}; $inKey)
 		return ($self)
 
 	end method
@@ -491,15 +252,7 @@ library "a4d.json"
 
 	method "endObject"($self)
 
-		// Overwrite the trailing comma if it exists.
-
-		if ($self{"_rep"}[[-1]] = ",")
-			$self{"_rep"}[[-1]] := "}"
-			$self{"_rep"} += ","
-		else
-			$self{"_rep"} += "},"
-		end if
-
+		end json object($self{"json"})
 		return ($self)
 
 	end method
@@ -522,13 +275,7 @@ library "a4d.json"
 
 	method "startArray"($self; $inKey = "")
 
-		if ($inKey)
-			$format := "{0}:["
-		else
-			$format := "["
-		end if
-
-		$self{"_rep"} += $format %% (encodeString($inKey))
+		start json array($self{"json"}; $inKey)
 		return ($self)
 
 	end method
@@ -550,15 +297,7 @@ library "a4d.json"
 
 	method "endArray"($self)
 
-		// If the next to last character is ",", overwrite with the array end.
-
-		if ($self{"_rep"}[[-1]] = ",")
-			$self{"_rep"}[[-1]] := "]"
-			$self{"_rep"} += ","
-		else
-			$self{"_rep"} += "],"
-		end if
-
+		end json array($self{"json"})
 		return ($self)
 
 	end method
@@ -580,24 +319,7 @@ library "a4d.json"
 
 	method "toJSON"($self)
 
-		// If there are any values, the length of _rep will be > 1 (the { at the beginning)
-		// and there will be an extra trailing comma. Replace the trailing comma with }
-		// if we are supposed to wrap the output, otherwise remove the trailing comma.
-		// If there are no values, just add the closing } if we are supposed to wrap.
-		$len := length($self{"_rep"})
-
-		if ($len > 1)
-			if ($self{"_wrap"})
-				$result := $self{"_rep"}
-				$result[[-1]] := "}"
-			else
-				$result := substring($self{"_rep"}; 1; $len - 1)
-			end if
-		else
-			$result := $self{"_rep"} + "}"
-		end if
-
-		return ($result)
+		return (json to text($self{"json"}))
 
 	end method
 
@@ -618,11 +340,7 @@ library "a4d.json"
 
 	method "write"($self; $inSetContentType = true)
 
-		write raw(toJSON($self))
-
-		if ($inSetContentType)
-			set content type("application/json")
-		end if
+		write json($self{"json"}; $inSetContentType)
 
 	end method
 
@@ -644,13 +362,7 @@ library "a4d.json"
 
     method "writep"($self; $inCallback; $inSetContentType = true)
 
-        write($inCallback + "(")
-        write raw(toJSON($self))
-        write(")")
-
-        if ($inSetContentType)
-            set content type("application/json")
-        end if
+        write jsonp($self{"json"}; $inCallback; $inSetContentType)
 
     end method
 
@@ -673,58 +385,14 @@ library "a4d.json"
 
 	method "encode"($inValue; $inFilter = "")
 
-		$type := type($inValue)
-
-		case of
-			:($type = 2)  // text
-				return (encodeString($inValue))
-
-			:($type = 1) | ($type = 8) | ($type = 9)  // numeric
-				if (is a collection($inValue) | is an iterator($inValue))
-					return (encodeCollection($inValue; $inFilter))
-				else
-					return ('$inValue')
-				end if
-
-			:($type = 4)  // date
-				return (encodeDate($inValue))
-
-			:($type = 6)  // boolean
-				return (encodeBoolean($inValue))
-
-			else
-				// bail on other types for now
-				return ("null")
-		end case
+		return (json encode($inValue; $inFilter))
 
 	end method
 
 
-	/*
-		Replace control characters with their textual representations
-	*/
-	method "_replaceChar"(&$inMatches)
-
-		$pos := position($inMatches{1}; kControlChars) - 1
-
-		if ($pos >= 0)
-			return (substring(kControlCharReps; ($pos * 2) + 1; 2))
-		else
-			return ("\\u00%02X" % (character code($inMatches{1})))
-		end if
-
-	end method
-
-
-	/*
-		encodeString
-
-		Encode a string according to JSON rules
-	*/
 	method "encodeString"($inString)
 
-		regex callback replace("/([\\\"\x00-\x1f])/"; $inString; "_replaceChar"; $result)
-		return (enclose($result))
+		return (json encode($inString))
 
 	end method
 
@@ -736,7 +404,7 @@ library "a4d.json"
 	*/
 	method "encodeDate"($inDate)
 
-		return ("\"{0} {1,number,##}, {2,number,####}\"" %% (self{"_months"}{month of($inDate)}; day of($inDate); year of($inDate)))
+		return (json encode($inDate))
 
 	end method
 
@@ -748,7 +416,7 @@ library "a4d.json"
 	*/
 	method "encodeBoolean"($inBool)
 
-		return (string(num($inBool); "true;;false"))
+		return (json encode($inBool))
 
 	end method
 
@@ -760,36 +428,7 @@ library "a4d.json"
 	*/
 	method "encodeArray"(&$inArray)
 
-		$type := type($inArray)
-		array text($items; 0)
-
-		case of
-			:($type = 18)  // text
-				for each ($inArray; $val)
-					$items{} := encodeString($val)
-				end for each
-
-			:($type >= 14) & ($type <= 16)  // numeric
-				for each ($inArray; $val)
-					if (is a collection($val))
-						$items{} := encodeCollection($val)
-					else
-						$items{} := string($val)
-					end if
-				end for each
-
-			:($type = 17)  // date
-				for each ($inArray; $val)
-					$items{} := encodeDate($val)
-				end for each
-
-			:($type = 22)  // boolean
-				for each ($inArray; $val)
-					$items{} := encodeBoolean($val)
-				end for each
-		end case
-
-		return ("[" + join array($items; ",") + "]")
+		return (json encode($inArray))
 
 	end method
 
@@ -818,79 +457,7 @@ library "a4d.json"
 
 	method "encodeCollection"($inCol; $inFilter = "")
 
-		$filter := $inFilter
-		$regex := false
-
-		// Use a boolean mask for the result of matching. For inclusion, we use mask = 0,
-		// which when subtracted from the match result leaves it the same. For exclusion,
-		// we use mask = 1, which when subtracted from the match result inverts it.
-		$mask := 0
-
-		if ($filter)
-			if ($filter[[1]] = "#")
-				$mask := 1
-				$filter := substring($filter; 2)
-			end if
-
-			if ($filter)
-				$regex := $filter[[1]] = "/"
-			end if
-		end if
-
-		$it := collection($inCol)
-		$more := more items($it)
-		array text($items; 0)
-
-		while ($more)
-			$key := get item key($it)
-
-			if ($filter)
-				if ($regex)
-					$match := abs(num(regex match($filter; $key)) - $mask) = 1
-				else
-					$match := abs(num($key = $filter) - $mask) = 1
-				end if
-			else
-				$match := true
-			end if
-
-			if ($match)
-				$key := encodeString($key)
-				$type := get item type($it)
-
-				case of
-					:($type = 2)  // text
-						$items{} := "{0}:{1}" %% ($key; encodeString(get item value($it)))
-
-					:($type = 1) | ($type = 8) | ($type = 9)  // numeric
-						$val := get item value($it)
-
-						if (is a collection($val))
-							$items{} := "{0}:{1}" %% ($key; encodeCollection($val; $inFilter))
-						else
-							$items{} := "{0}:{1}" %% ($key; string(get item value($it)))
-						end if
-
-					:($type = 4)  // date
-						$items{} := "{0}:{1}" %% ($key; encodeDate(get item value($it)))
-
-					:($type = 6)  // boolean
-						$items{} := "{0}:{1}" %% ($key; encodeBoolean(get item value($it)))
-
-					:($type >= 14) & ($type <= 22)  // array
-						$items{} := "{0}:{1}" %% ($key; encodeArray($inCol{get item key($it)}))
-
-					else
-						// bail on other types for now
-						$items{} := "{0}:null" %% ($key)
-				end case
-			end if
-
-			next item($it)
-			$more := more items($it)
-		end while
-
-		return ("{" + join array($items; ",") + "}")
+		return (json encode($inCol; $inFilter))
 
 	end method
 
@@ -915,9 +482,6 @@ library "a4d.json"
 		true/false			boolean
 		null				nil pointer
 
-		NOTE: This parser is complete and handles all well-formed JSON, but it is relatively slow.
-		For example, parsing 50 records with 9 fields each takes about a second.
-
 		Parameters:
 		$inJSON						Text		JSON data
 		$inWantGlobalCollections	Boolean		If false (the default), all collections created
@@ -929,31 +493,23 @@ library "a4d.json"
 
 	method "parse"($inJSON; $inWantGlobalCollections = false; $inThrowOnError = true)
 
-		$ctx := new collection("text"; $inJSON; "at"; 1; "ch"; " ")
+		$result ::= parse json($inJSON; $inThrowOnError)
 
-		// If the result is an array, we wrap it in a collection
-		$result ::= _parseValue($ctx)
-		_parseWhite($ctx)
+		if ($inWantGlobalCollections)
+			case of
+				:(type($result) = is longint)
+					if (is a collection($result))
+						$result := deep copy collection($result; *)
+					end if
 
-		case of
-			:($ctx{"ch"})
-				_parseError($ctx; "Syntax error")
-
-			:($inWantGlobalCollections)
-				case of
-					:(type($result) = is longint)
-						if (is a collection($result))
-							return (deep copy collection($result; *))
+				:(type($result) = longint array)
+					for each ($result; $element; $index)
+						if (is a collection($element))
+							$result{$index} := deep copy collection($element)
 						end if
-
-					:(type($result) = longint array)
-						for each ($result; $element; $index)
-							if (is a collection($element))
-								$result{$index} := deep copy collection($element)
-							end if
-						end for each
-				end case
-		end case
+					end for each
+			end case
+		end if
 
 		return ($result)
 
@@ -1075,304 +631,6 @@ library "a4d.json"
 		end if
 
 		return ($inText)
-
-	end method
-
-
-	/* Helper methods for parse() */
-
-	method "_parseValue"($ctx)
-
-		_parseWhite($ctx)
-		$ch := $ctx{"ch"}
-
-		case of
-			:($ch = "{")
-				return (_parseObject($ctx))
-
-			:($ch = "[")
-				return (_parseArray($ctx))
-
-			:($ch = "\"")
-				return (_parseString($ctx))
-
-			:($ch = "-")
-				return (_parseNumber($ctx))
-
-			:($ch >= "0") & ($ch <= "9")
-				return (_parseNumber($ctx))
-
-			else
-				return (_parseWord($ctx))
-		end case
-
-	end method
-
-
-	method "_parseObject"($ctx)
-
-		c_text($key)
-
-		if ($ctx{"ch"} = "{")
-			c_longint($object)
-			$object := new collection
-			_parseNext($ctx)
-			_parseWhite($ctx)
-
-			if ($ctx{"ch"} = "}")
-				_parseNext($ctx)
-				return ($object)  // empty object
-			end if
-
-			while ($ctx{"ch"})
-				$key := _parseString($ctx)
-				_parseWhite($ctx)
-				_parseNext($ctx; ":")
-
-				if (collection has($object; $key))
-					_parseError($ctx; 'Duplicate key: "$key"')
-				end if
-
-				$object{$key} := _parseValue($ctx)
-				_parseWhite($ctx)
-
-				if ($ctx{"ch"} = "}")
-					_parseNext($ctx)
-					return ($object)
-				end if
-
-				_parseNext($ctx; ",")
-				_parseWhite($ctx)
-			end while
-		end if
-
-		_parseError($ctx; "Invalid object")
-
-	end method
-
-
-	method "_parseArray"($ctx)
-
-		$arrayType := is undefined
-		array longint($array; 0)
-
-		if ($ctx{"ch"} = "[")
-			_parseNext($ctx)
-			_parseWhite($ctx)
-
-			if ($ctx{"ch"} = "]")
-				_parseNext($ctx)
-				return ($array)
-			end if
-
-			while ($ctx{"ch"})
-				$value ::= _parseValue($ctx)
-				$type := type($value)
-
-				// If the array type has not yet been set, do it now
-				if ($arrayType = is undefined)
-					case of
-						:($type = is boolean)
-							array boolean($array; 0)
-
-						:($type = is longint)
-							if (is a collection($value))
-								array longint($array; 0)
-							else
-								array real($array; 0)
-							end if
-
-						:($type = is text)
-							array text($array; 0)
-
-						else
-							_parseError($ctx; 'Unsupported array type: `type descriptor($type)`')
-					end case
-
-					$arrayType := $type
-				end if
-
-				if ($type = $arrayType)
-					$array{} := $value
-				else
-					_parseError($ctx; "Invalid array element type (expected {0}, found {1})" %% (type descriptor($type); type descriptor($ctx{"result"})))
-				end if
-
-				_parseWhite($ctx)
-
-				if ($ctx{"ch"} = "]")
-					_parseNext($ctx; "]")
-					return ($array)
-				end if
-
-				_parseNext($ctx; ",")
-				_parseWhite($ctx)
-			end while
-		end if
-
-		_parseError($ctx; "Invalid array")
-
-	end method
-
-
-	method "_parseWord"($ctx)
-
-		case of
-			:($ctx{"ch"} = "t")
-				_parseNext($ctx; "t")
-				_parseNext($ctx; "r")
-				_parseNext($ctx; "u")
-				_parseNext($ctx; "e")
-				return (true)
-
-			:($ctx{"ch"} = "f")
-				_parseNext($ctx; "f")
-				_parseNext($ctx; "a")
-				_parseNext($ctx; "l")
-				_parseNext($ctx; "s")
-				_parseNext($ctx; "e")
-				return (false)
-
-			:($ctx{"ch"} = "n")
-				_parseNext($ctx; "n")
-				_parseNext($ctx; "u")
-				_parseNext($ctx; "l")
-				_parseNext($ctx; "l")
-				return (nil pointer)
-		end case
-
-		_parseError($ctx; 'Unexpected \'$ctx{"ch"}\'')
-
-	end method
-
-
-	method "_parseString"($ctx)
-
-		$s := ""
-		$hexA := character code("a")
-
-		if ($ctx{"ch"} = "\"")
-			while (_parseNext($ctx) # "")
-				case of
-					:($ctx{"ch"} = "\"")
-						_parseNext($ctx)
-						return ($s)
-
-					:($ctx{"ch"} = "\\")
-						_parseNext($ctx)
-
-						case of
-							:($ctx{"ch"} = "u")
-								$uchar := 0
-
-								for ($i; 0; 3)
-									$ch := lowercase(_parseNext($ctx))
-
-									case of
-										:($ch >= "0") & ($ch <= "9")
-											$hex := num($ch)
-
-										:($ch >= "a") & ($ch <= "f")
-											$hex := num(character code($ch) - $hexA + 10)
-
-										else
-											_parseError($ctx; 'Invalid hex digit \'$ch\'')
-									end case
-
-									$uchar := $uchar * 16 + $hex
-								end for
-
-								$s += char($uchar)
-
-							:($ctx{"ch"} ~ a4d.json.kParseEscapees)
-								$s += a4d.json.kParseEscapees{$ctx{"ch"}}
-
-							else
-								break
-						end case
-
-					else
-						$s += $ctx{"ch"}
-				end case
-			end while
-		end if
-
-		_parseError($ctx; "Invalid string")
-
-	end method
-
-
-	method "_parseNumber"($ctx)
-
-		c_text($s)
-		$s := ""
-
-		if ($ctx{"ch"} = "-")
-			$s := "-"
-			_parseNext($ctx; "-")
-		end if
-
-		while (($ctx{"ch"} >= "0") & ($ctx{"ch"} <= "9"))
-			$s += $ctx{"ch"}
-			_parseNext($ctx)
-		end while
-
-		if ($ctx{"ch"} = ".")
-			$s += "."
-
-			while ((_parseNext($ctx) # "") & ($ctx{"ch"} >= "0") & ($ctx{"ch"} <= "9"))
-				$s += $ctx{"ch"}
-			end while
-		end if
-
-		if ($ctx{"ch"} = "e")
-			$s += $ctx{"ch"}
-			_parseNext($ctx)
-
-			if ($ctx{"ch"} = "-") | ($ctx{"ch"} = "+")
-				$s += $ctx{"ch"}
-				_parseNext($ctx)
-			end if
-
-			while (($ctx{"ch"} >= "0") & ($ctx{"ch"} <= "9"))
-				$s += $ctx{"ch"}
-				_parseNext($ctx)
-			end while
-		end if
-
-		c_real($number)
-		$number := num($s)
-		return ($number)
-
-	end method
-
-
-	method "_parseNext"($ctx; $c = "")
-
-		if (length($c) # 0) & ($c # $ctx{"ch"})
-			_parseError($ctx; 'Expected \'$c\', found \'$ctx{"ch"}\'')
-		end if
-
-		$ctx{"ch"} := $ctx{"text"}[[$ctx{"at"}]]
-		++$ctx{"at"}
-		return ($ctx{"ch"})
-
-	end method
-
-
-	method "_parseWhite"($ctx)
-
-		while ((length($ctx{"ch"}) # 0) & ($ctx{"ch"} <= " "))
-			_parseNext($ctx)
-		end while
-
-	end method
-
-
-	method "_parseError"($ctx; $inMessage)
-
-		$at := $ctx{"at"} - 1
-		throw(kParseError; 'JSON parse error at position $at: $inMessage')
 
 	end method
 
