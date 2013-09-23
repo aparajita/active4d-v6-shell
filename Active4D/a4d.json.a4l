@@ -489,11 +489,20 @@ library "a4d.json"
 												collections will be global.
 		$inThrowOnError				Boolean		If true (the default), malformed JSON will throw
 												an error.
+		$inDateKeys					Text		If passed, should be a delimited regular expression.
+												JSON strings whose key matches the regular
+												will be converted to 4D dates if they match the
+												following patterns:
+
+		Mmm d, yyyy				IETF date format. Mmm is a 3-letter English month abbreviation.
+
+		yyyy-mm-dd
+		yyyy-mm-ddThh:mm:ss		ISO Date format
 	************************************************************************************************/
 
-	method "parse"($inJSON; $inWantGlobalCollections = false; $inThrowOnError = true)
+	method "parse"($inJSON; $inWantGlobalCollections = false; $inThrowOnError = true; $inDateKeys = "")
 
-		$result ::= parse json($inJSON; $inThrowOnError)
+		$result ::= parse json($inJSON; $inThrowOnError; $inDateKeys)
 
 		if ($inWantGlobalCollections)
 			case of
@@ -519,6 +528,9 @@ library "a4d.json"
 
 	/************************************************************************************************
 		convertJSONDates
+
+		NOTE: This method has been deprecated in favor of the $inDateKeys parameter of the
+		parse method.
 
 		This method recursively traverses an object and converts text that looks like dates into
 		4D dates. Text will be converted if it matches one of the following patterns:
