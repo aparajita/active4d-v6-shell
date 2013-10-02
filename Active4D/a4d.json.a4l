@@ -502,7 +502,7 @@ library "a4d.json"
 
 	method "parse"($inJSON; $inWantGlobalCollections = false; $inThrowOnError = true; $inDateKeys = "")
 
-		$result ::= parse json($inJSON; $inThrowOnError; $inDateKeys)
+		$result ::= parse json($inJSON; $inDateKeys; $inThrowOnError)
 
 		if ($inWantGlobalCollections)
 			case of
