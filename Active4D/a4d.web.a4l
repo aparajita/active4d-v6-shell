@@ -115,7 +115,7 @@ end method
 
 method "embedFormVariableList"($inVariables)
 
-	embedCollectionItems(_form)
+	embedCollectionItems(_form; $inVariables)
 
 end method
 
