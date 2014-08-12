@@ -27,7 +27,7 @@ library "a4d.debug"
 	as if it were a pointer to an array, but without having to dereference.
 **********************************************************************************/
 
-method "dump array"(&$inArray; $inDisplayInline = false; $inName = ""; $inDisplayCollections = false; $inShowType = false; $inShowZeroElement = false)
+method "dump array"(&$inArray; $inDisplayInline = false; $inName = ""; $inDisplayCollections = false; $inShowType = false; $inShowZeroElement = false; $inBlobTextFormat = -1)
 
 	c_boolean($isText)
 	$isText := (type($inArray) = Text array) | (type($inArray) = String array)
@@ -95,7 +95,7 @@ method "dump array"(&$inArray; $inDisplayInline = false; $inName = ""; $inDispla
 
 			case of
 				:($type = Text array) | ($type = String array)
-					$value := mac to html(enclose($inArray{$i}); *) + "</td>\n    <td>" + length($inArray{$i})
+					$value := html encode(enclose($inArray{$i}); *) + "</td>\n    <td>" + length($inArray{$i})
 
 				:($type = Pointer array)
 					$value := a4d.utils.getPointerReferent($inArray{$i})
@@ -109,6 +109,13 @@ method "dump array"(&$inArray; $inDisplayInline = false; $inName = ""; $inDispla
 				:($type = longint array) | ($type = real array)
 					$value := $inArray{$i}
 					$isCollection := is a collection($value) & $inDisplayCollections
+
+				:($type = blob array)
+					if ($inBlobTextFormat >= 0)
+						$value := html encode(enclose(blob to text($inArray{$i}; $inBlobTextFormat)); *)
+					else
+						$value := string(blob size($inArray{$i})) + " bytes"
+					end if
 
 				else
 					$value := $inArray{$i}
