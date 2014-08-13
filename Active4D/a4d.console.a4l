@@ -36,12 +36,14 @@ end method
 											to show them
 	$inShowZeroElement		->	Boolean		False to hide zero element (default), true
 											to show it
+	$inBlobTextFormat		->	Number 		>= 0 to format BLOB array elements as text,
+											using the given format (as used by 'BLOB to text')
 
 	Note that we pass $inArray by reference. This allows us to access $inArray
 	as if it were a pointer to an array, but without having to dereference.
 **********************************************************************************/
 
-method "dump array"(&$inArray; $inDisplayInline = false; $inName = ""; $inDisplayCollections = false; $inShowType = false; $inShowZeroElement = false)
+method "dump array"(&$inArray; $inDisplayInline = false; $inName = ""; $inDisplayCollections = false; $inShowType = false; $inShowZeroElement = false; $inBlobTextFormat = -1)
 
 	c_boolean($isText)
 	$isText := (type($inArray) = Text array) | (type($inArray) = String array)
@@ -96,6 +98,13 @@ method "dump array"(&$inArray; $inDisplayInline = false; $inName = ""; $inDispla
 				:($type = longint array) | ($type = real array)
 					$value := $inArray{$i}
 					$isCollection := is a collection($value) & $inDisplayCollections
+
+				:($type = blob array)
+					if ($inBlobTextFormat >= 0)
+						$value := html encode(enclose(blob to text($inArray{$i}; $inBlobTextFormat)); *)
+					else
+						$value := string(blob size($inArray{$i})) + " bytes"
+					end if
 
 				else
 					$value := $inArray{$i}

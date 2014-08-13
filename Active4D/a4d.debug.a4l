@@ -22,6 +22,8 @@ library "a4d.debug"
 											to show them
 	$inShowZeroElement		->	Boolean		False to hide zero element (default), true
 											to show it
+	$inBlobTextFormat		->	Number 		>= 0 to format BLOB array elements as text,
+											using the given format (as used by 'BLOB to text')
 
 	Note that we pass $inArray by reference. This allows us to access $inArray
 	as if it were a pointer to an array, but without having to dereference.
