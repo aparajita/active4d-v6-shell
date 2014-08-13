@@ -70,7 +70,7 @@ method "dump array"(&$inArray; $inDisplayInline = false; $inName = ""; $inDispla
 	if ($inDisplayInline)
 		writeln('''
   <tr>
-    <td class="inline">[$inArray] {`mac to html(join array($inArray; ", "; 1; false; true); *)`}</td>
+    <td class="inline">[$inArray] {`html encode(join array($inArray; ", "; 1; false; true); *)`}</td>
   </tr>''')
 
   	else
@@ -325,7 +325,11 @@ method "_writeCollectionItems"($inIterator; $inShowHeader = true; $inShowType = 
 				$valueStr := a4d.utils.getPictureDescriptor($value)
 
 			:($type = Is BLOB)
-				$valueStr := string(blob size($value)) + " bytes"
+				if ($inBlobTextFormat >= 0)
+					$valueStr := enclose(html encode(text to blob($value; $inBlobTextFormat)))
+				else
+					$valueStr := string(blob size($value)) + " bytes"
+				end if
 
 			:($type = Is Pointer)
 				$valueStr := string($value)
@@ -363,7 +367,7 @@ method "_writeCollectionItems"($inIterator; $inShowHeader = true; $inShowType = 
 					$valueStr := string($value)
 				end if
 
-				write(cell(mac to html($valueStr; *)))
+				write(cell(html encode($valueStr; *)))
 		end case
 
 		write("</td>\n</tr>\n")
@@ -637,11 +641,11 @@ method "dump license info"
 		write('''
   <tr>
     <td class="label">Username</td>
-    <td>`cell(mac to html($user; *))`</td>
+    <td>`cell(html encode($user; *))`</td>
   </tr>
   <tr>
     <td class="label">Company</td>
-    <td>`cell(mac to html($company; *))`</td>
+    <td>`cell(html encode($company; *))`</td>
   </tr>
   <tr>
     <td class="label">Version</td>
@@ -675,7 +679,7 @@ method "dump license info"
 		write('''
   <tr>
     <td class="label">Key file path</td>
-    <td>`mac to html($path; *)`</td>
+    <td>`html encode($path; *)`</td>
   </tr>''')
 	end if
 
@@ -808,8 +812,8 @@ end method
 /***************************************************************************************************
 	dump selection
 
-	$inTable	Table pointer	->	Table to dump
-	$inFields	Text			->	Semicolon-delimited list of fields to display
+	$inTable			->	Table pointer	Table to dump
+	$inFields			->	Text			Semicolon-delimited list of fields to display
 
 	Dumps the current selection for $inTable. If $inFields is passed, only those fields
 	are displayed, otherwise all fields are displayed. $inFields may contain fields from
@@ -899,7 +903,7 @@ method "dump selection"($inTable; $inFields = "")
 <div class="a4d-debug">
 <table>
   <tr>
-    <td colspan="`size of array($fields) + 1`" class="title">`mac to html($tableName; *)`</td>
+    <td colspan="`size of array($fields) + 1`" class="title">`html encode($tableName; *)`</td>
   </tr>
   <tr>
     <th class="num">#</th>''')
@@ -907,7 +911,7 @@ method "dump selection"($inTable; $inFields = "")
 	// Write the field names at the top
 
 	for each ($fieldNames; $name)
-		writeln('    <th>`mac to html($name; *)`</th>')
+		writeln('    <th>`html encode($name; *)`</th>')
 	end for each
 
 	writeln("  </tr>")
@@ -926,22 +930,22 @@ method "dump selection"($inTable; $inFields = "")
 				resolve pointer($field; $name; $tableNum; $fieldNum)
 
 				if ($fieldNum = 0)
-					$value := mac to html(string(record number(table($tableNum)->); $fieldFormats{$fi}); *)
+					$value := html encode(string(record number(table($tableNum)->); $fieldFormats{$fi}); *)
 					$class := "right"
 				else
 					$type := type($field->)
 
 					case of
 						:($type = Is Alpha Field) | ($type = Is Text)
-							$value := mac to html($field->; *)
+							$value := html encode($field->; *)
 
 						:($type = Is Date) | ($type = Is Time)
 							// These types take a numeric format
 							if (length($fieldFormats{$fi}) > 0)
 								execute('\$format := $fieldFormats{$fi}')
-								$value := mac to html(string($field->; $format); *)
+								$value := html encode(string($field->; $format); *)
 							else
-								$value := mac to html(string($field->); *)
+								$value := html encode(string($field->); *)
 							end if
 
 						:($type = Is Boolean)
@@ -951,11 +955,16 @@ method "dump selection"($inTable; $inFields = "")
 							$value := a4d.utils.getPictureDescriptor($field->)
 
 						:($type = Is Blob)
-							$value := "BLOB ({0,number} bytes)" %% (blob size($field->))
+							if (length($fieldFormats{$fi}) > 0)
+								execute('\$format := $fieldFormats{$fi}')
+								$value := enclose(html encode(blob to text($field->; $format)))
+							else
+								$value := "BLOB ({0,number} bytes)" %% (blob size($field->))
+							end if
 
 						else
 							// real, integer, longint
-							$value := mac to html(string($field->; $fieldFormats{$fi}); *)
+							$value := html encode(string($field->; $fieldFormats{$fi}); *)
 							$class := "right"
 					end case
 				end if
