@@ -135,7 +135,7 @@ method "dump array"(&$inArray; $inDisplayInline = false; $inName = ""; $inDispla
     <td>''')
 
 			if ($isCollection)
-				_writeCollectionItems(collection($value); true; $inShowType; ""; false; true)
+				_writeCollectionItems(collection($value); true; $inShowType; ""; false; true; $inBlobTextFormat)
 			else
 				writeln($value)
 			end if
@@ -154,17 +154,19 @@ end method
 /**********************************************************************************
 	dump collection
 
-	$inReference	->	Collection | Iterator	Iterator to the collection to display
-	$inName			->	Text					Name of the dumped entity
-	$inShowType		-> 	Boolean					True to show the value's type
-	$inInlineArrays	->	Boolean					True to display arrays inline
-	$inFilter		->	Text					Regexp to filter items in the collection,
-												see _writeCollectionItems for more info
+	$inReference		->	Collection | Iterator	Iterator to the collection to display
+	$inName				->	Text					Name of the dumped entity
+	$inShowType			-> 	Boolean					True to show the value's type
+	$inInlineArrays		->	Boolean					True to display arrays inline
+	$inFilter			->	Text					Regexp to filter items in the collection,
+													see _writeCollectionItems for more info
+	$inBlobTextFormat	->	Number 					>= 0 to format BLOB array elements as text,
+													using the given format (as used by 'BLOB to text')
 
 	Creates a formatted dump of a collection.
 **********************************************************************************/
 
-method "dump collection"(&$inReference; $inName = ""; $inShowType = false; $inInlineArrays = true; $inFilter = "")
+method "dump collection"(&$inReference; $inName = ""; $inShowType = false; $inInlineArrays = true; $inFilter = ""; $inBlobTextFormat = -1)
 
 	if (type($inReference) # is longint) & (type($inReference) # is real)
 		writebr("<p>The collection reference passed in is neither an iterator nor a collection handle.</p>")
@@ -205,7 +207,7 @@ method "dump collection"(&$inReference; $inName = ""; $inShowType = false; $inIn
   </tr>''')
 	end if
 
-	_writeCollectionItems($it; true; $inShowType; $inFilter; $inInlineArrays)
+	_writeCollectionItems($it; true; $inShowType; $inFilter; $inInlineArrays; false; $inBlobTextFormat)
 	write("</table>\n</td></tr>\n</table>\n</div>\n</div>\n")
 
 end method
@@ -215,17 +217,18 @@ end method
 /**********************************************************************************
 	_writeCollectionItems [private]
 
-	$inIterator		->	Iterator	Iterator for the collection to display
-	$inShowHeader	->	Boolean		True to display column headers
-	$inShowType		-> 	Boolean		True to show the value's type
-	$inFilter		->	Text		If the first character is "-", items matching
-									the regexp following are hidden. Otherwise
-									only items matching the regexp are shown.
-	$inInlineArrays	->	Boolean		True to display arrays inline
-	$inWrapInTable	->	Boolean		True to wrap output in a <table>
+	$inIterator			->	Iterator	Iterator for the collection to display
+	$inShowHeader		->	Boolean		True to display column headers
+	$inShowType			-> 	Boolean		True to show the value's type
+	$inFilter			->	Text		If the first character is "-", items matching
+										the regexp following are hidden. Otherwise
+										only items matching the regexp are shown.
+	$inInlineArrays		->	Boolean		True to display arrays inline
+	$inWrapInTable		->	Boolean		True to wrap output in a <table>
+	$inBlobTextFormat	->	Number 		Format for BLOB text
 **********************************************************************************/
 
-method "_writeCollectionItems"($inIterator; $inShowHeader = true; $inShowType = false; $inFilter = ""; $inInlineArrays = true; $inWrapInTable = false)
+method "_writeCollectionItems"($inIterator; $inShowHeader = true; $inShowType = false; $inFilter = ""; $inInlineArrays = true; $inWrapInTable = false; $inBlobTextFormat = -1)
 
 	if ($inWrapInTable)
 		write("<table>\n")
@@ -292,7 +295,22 @@ method "_writeCollectionItems"($inIterator; $inShowHeader = true; $inShowType = 
 		case of
 			:(is array($type))
 				if ($inInlineArrays)
-					$valueStr := '[$inIterator{$key}] {`join array($inIterator{$key}; ", "; 0; false; true)`}'	`no element number, quote text
+					if ($inBlobTextFormat < 0)
+						$valueStr := '[$inIterator{$key}] {`join array($inIterator{$key}; ", "; 0; false; true)`}'	`no element number, quote text
+					else
+						$valueStr := '[$inIterator{$key}] {'
+						$size := size of array($inIterator{$key})
+
+						for ($i; 0; $size)
+							$valueStr += enclose(blob to text($inIterator{$key}{$i}; $inBlobTextFormat))
+
+							if ($i < $size)
+								$valueStr += ", "
+							end if
+						end for
+
+						$valueStr += "}"
+					end if
 				else
 					$valueIsArray := true
 				end if
@@ -335,10 +353,10 @@ method "_writeCollectionItems"($inIterator; $inShowHeader = true; $inShowType = 
 
 		case of
 			:($valueIsCollection)
-				_writeCollectionItems(collection($value); true; $inShowType; ""; $inInlineArrays; true)
+				_writeCollectionItems(collection($value); true; $inShowType; ""; $inInlineArrays; true; $inBlobTextFormat)
 
 			:($valueIsArray)
-				a4d.debug.dump array($inIterator{$key}; false; "-"; true; false; $inShowType)
+				a4d.debug.dump array($inIterator{$key}; false; "-"; true; $inShowType; false; $inBlobTextFormat)
 
 			else
 				if (not(is array($type)) & (length($valueStr) = 0))
@@ -369,15 +387,17 @@ end method
 /**********************************************************************************
 	dump session
 
-	$inShowType		-> 	Boolean					True to show the value's type
-	$inInlineArrays	->	Boolean					True to display arrays inline
-	$inFilter		->	Text					Regexp to filter items in the collection,
-												see _writeCollectionItems for more info
+	$inShowType			-> 	Boolean		True to show the value's type
+	$inInlineArrays		->	Boolean		True to display arrays inline
+	$inFilter			->	Text		Regexp to filter items in the collection,
+										see _writeCollectionItems for more info
+	$inBlobTextFormat	->	Number 		>= 0 to format BLOB array elements as text,
+										using the given format (as used by 'BLOB to text')
 
 	Dumps the contents of the current session in an easy to read format.
 ***********************************************************************************/
 
-method "dump session"($inShowType = true; $inInlineArrays = true; $inFilter = "")
+method "dump session"($inShowType = true; $inInlineArrays = true; $inFilter = ""; $inBlobTextFormat = -1)
 
 	if (session internal id = 0)
 		write("<p>There is no current session.</p>\n")
@@ -390,7 +410,7 @@ method "dump session"($inShowType = true; $inInlineArrays = true; $inFilter = ""
 			$timeout := "{0,number,#########0} minutes" %% ($timeout)
 		end if
 
-		a4d.debug.dump collection(session; "Session [{0,number,############0}/{1}]{2}<span style=\"font-weight: normal\">Timeout: {3}</span>" %% (session internal id; session id; a4d.web.br; $timeout); $inShowType; $inInlineArrays; $inFilter)
+		a4d.debug.dump collection(session; "Session [{0,number,############0}/{1}]{2}<span style=\"font-weight: normal\">Timeout: {3}</span>" %% (session internal id; session id; a4d.web.br; $timeout); $inShowType; $inInlineArrays; $inFilter; $inBlobTextFormat)
 	end if
 
 end method
@@ -672,17 +692,19 @@ end method
 /***********************************************************************************
 	dump locals
 
-	$inDumpChain	->	Boolean/Text	True dumps locals for all methods in the call chain,
-										non-empty text dumps locals for the given scope
-	$inFilter		->	Boolean/Text	False (default) hides fusebox-related stuff, true
-										shows fusebox stuff, non-empty text includes/excludes
-										only items that match the filter
+	$inDumpChain		->	Boolean/Text	True dumps locals for all methods in the call chain,
+											non-empty text dumps locals for the given scope
+	$inFilter			->	Boolean/Text	False (default) hides fusebox-related stuff, true
+											shows fusebox stuff, non-empty text includes/excludes
+											only items that match the filter
+	$inBlobTextFormat	->	Number 			>= 0 to format BLOB array elements as text,
+											using the given format (as used by 'BLOB to text')
 
 	Dumps the local variables for the current scope or for all methods
 	in the call chain.
 ***********************************************************************************/
 
-method "dump locals"($inDumpChain = false; $inFilter = false)
+method "dump locals"($inDumpChain = false; $inFilter = false; $inBlobTextFormat = -1)
 
 	addDumpStyles
 	writeln('''
@@ -728,7 +750,7 @@ method "dump locals"($inDumpChain = false; $inFilter = false)
 <tr>
   <td colspan="3" class="title">$scopeName</td>
 </tr>''')
-		_writeCollectionItems(local variables($chain{$i}); $i = 1; true; $inFilter; false; false)
+		_writeCollectionItems(local variables($chain{$i}); $i = 1; true; $inFilter; false; false; $inBlobTextFormat)
 	end for
 
 	write("</table>\n</div>\n</div>\n")
