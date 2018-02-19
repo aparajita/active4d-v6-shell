@@ -1060,6 +1060,57 @@ method "selectionRangeToCollection"($inStart; $inEnd; &$inFields; $inWantGlobal 
 end method
 
 
+
+/***********************************************************************************
+	parseConfig
+
+	$inPathOrDocRef     ->  File to parse
+	$inEOL              ->  EOL used by config file
+	RESULT              <-  Collection with key/value pairs read from file
+***********************************************************************************/
+
+method "parseConfig"($inPathOrDocRef; $inEOL = "\n")
+
+	$config := new collection
+	c_time($doc)
+
+	if (type($inPathOrDocRef) = is text)
+		$doc := open document($inPathOrDocRef)
+	else
+		$doc := $inPathOrDocRef
+	end if
+
+	if ($doc # ?00:00:00?)
+		c_text($text)
+		receive packet($doc; $text; maxlong)
+
+		if (type($inPathOrDocRef) = is text)
+			close document($doc)
+		end if
+
+		array text($lines; 0)
+		split string($text; $inEOL; $lines; false)
+		array text($matches; 0)
+
+		for each ($lines; $line)
+			if (left trim($line) # "//@")
+				if (regex match("/^(.+?)=(.*)$/"; $line; $matches))
+					$key := trim($matches{1})
+
+					if ($key)
+						$config{$key} := trim($matches{2})
+					end if
+				end if
+			end if
+		end for each
+
+	end if
+
+	return ($config)
+
+end method
+
+
 /*
 	PRIVATE METHODS
 */
