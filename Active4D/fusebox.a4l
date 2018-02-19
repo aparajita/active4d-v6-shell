@@ -38,7 +38,7 @@ define(kMissingLayoutError; 7006)
 				It is a method so that it doesn't have to be loaded with every page hit.
 				You should never have to call this yourself, it is called by the special
 				Fusebox index.a4d file or by sendFuseaction.
-	Require:	$inRootPath must be a full Unix path to the directory of the web root.
+	Require:	$inRootPath must be a full Posix path to the directory of the web root.
 				If called directly by another method, $ioAttributes{fusebox.conf.fuseaction} must
 				contain the fuseaction to run. Also, $fbx_self must have been declared
 				at the global level and set to the name of the invoking web page, usually
@@ -222,7 +222,7 @@ method "core"($inRootPath; $ioAttributes = 0; $inNestedCall = false)
 		can prevent parent circuits from nesting.
 
 		$fusebox{"appPath"}:
-		This variable contains the full Unix path to the root circuit of the application.
+		This variable contains the full Posix path to the root circuit of the application.
 		This is needed when calling the core directly.
 
 		$fusebox{"self"}:
