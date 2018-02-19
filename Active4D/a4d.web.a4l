@@ -863,7 +863,7 @@ end method
 
 method "validEmailAddress"($inAddress)  // -> outValid
 
-	return (trim($inAddress) =~ "/^([a-z0-9_+]|\-|\.)+@(([a-z0-9_]|\-)+\.)+[a-z]{2,4}$/i")
+	return (trim($inAddress) =~ "/^(?!\\.)(\"(?:[^\"\r\\\\]|\\\\[\"\r\\\\])*\"|(?:[-a-z0-9!#$%&'*+\/=?^_`{|}~]|(?<!\.)\.)*)(?<!\\.)@([a-z0-9][\\w\\.-]*[a-z0-9]\\.[a-z][a-z\\.]*[a-z])$/i")
 
 end method
 
@@ -1002,7 +1002,7 @@ end method
 
 	If $inCurrentField is in the list $inInvalidFields, an image tag is written
 	to display $inWarningURL. The format of $inInvalidFields is that returned by
-	the ValidateTextFields method.
+	the validateTextFields method.
 ***********************************************************************************/
 
 method "warnInvalidField"($inCurrentField; $inInvalidFields; $inWarningURL = "/images/warning.gif")
