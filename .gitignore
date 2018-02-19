@@ -1,2 +1,9 @@
 *.journal
 Preferences/
+*.4DB
+*.4DD
+*.4DIndy
+*.Match
+.DS_Store
+Logs
+Plugins
